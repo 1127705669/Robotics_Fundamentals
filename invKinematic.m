@@ -70,13 +70,24 @@ L(4) = Link([0 0 0 pi/2]);
 L(5) = Link([0 handles.d_5 0 0]);
 
 L(1).qlim = [-pi pi];
-L(2).qlim = [-pi pi];
-L(3).qlim = [-pi pi];
-L(4).qlim = [-pi pi];
+L(2).qlim = [0 pi];
+L(3).qlim = [-pi/2 0];
+L(4).qlim = [0 pi];
 L(5).qlim = [-pi pi];
 
 Robot = SerialLink(L);
 Robot.name = 'Lynxmotion Robot';
+
+handles.points = [
+    400, 0, 0, deg2rad(0), deg2rad(0);
+    200, 0, 200, deg2rad(0), deg2rad(0);
+    100, -150, 100, deg2rad(0), deg2rad(45);
+    -100, -150, 200, deg2rad(30), deg2rad(45);
+    200, 0, 100, deg2rad(30), deg2rad(45);
+    0, 200, 150, deg2rad(30), deg2rad(45);
+    -200, 0, 200, deg2rad(30), deg2rad(45);
+    0, -200, 100, deg2rad(30), deg2rad(45);
+];
 
 % Store the robot arm model in the handles structure
 handles.Robot = Robot;
@@ -213,7 +224,7 @@ if(gamma > pi/2)
     zw = PZ - handles.d_5*sin(gamma - pi/2);
 end
 
-if(gamma < pi/2)
+if(gamma <= pi/2)
     rw = sqrt(PX^2 + PY^2) - handles.d_5*sin(gamma);
     zw = PZ + handles.d_5*cos(gamma);
 end
@@ -221,12 +232,13 @@ end
 theta1 = atan2(PY, PX);
 
 cos_theta3 = ((zw - handles.d_1)^2 + rw^2 - handles.d_2^2 - handles.d_3^2)/(2*handles.d_2*handles.d_3);
-sin_theta3 = sqrt(1 - cos_theta3^2);
+sin_theta3 = -sqrt(1 - cos_theta3^2);
 theta3 = atan2(sin_theta3, cos_theta3);
 
-theta2 = atan2(zw - handles.d_1,rw) - atan2(handles.d_3*sin_theta3, handles.d_2 + handles.d_3*cos_theta3);
+beta = atan2(handles.d_3*sin(-theta3), handles.d_2 + handles.d_3*cos(-theta3));
+theta2 = atan2(zw - handles.d_1,rw) + beta;
 
-theta4 = gamma - theta2 - theta3;
+theta4 = pitch;
 theta5 = yaw;
 
 % Update the joint angles displayed on the GUI
@@ -546,16 +558,16 @@ function btn_calculate_workspace_Callback(hObject, eventdata, handles)
 Robot = handles.Robot;
 
 qlim = [-pi pi; % 关节1
-        -pi/2 pi/2; % 关节2
+        0 pi; % 关节2
         -pi/2 pi/2; % 关节3
-        -pi/2 pi/2; % 关节4
-        -pi/2 pi/2]; % 关节5
+        0 pi; % 关节4
+        -pi pi]; % 关节5
 
 % 初始化末端执行器位置数组
 positions = [];
 
 % 为每个关节定义采样点数
-n = 30; % 增加这个值会得到更精确的结果，但计算时间会更长
+n = 10; % 增加这个值会得到更精确的结果，但计算时间会更长
 
 % 生成工作空间
 for i = linspace(qlim(1,1), qlim(1,2), n)
@@ -579,7 +591,7 @@ end
 % 绘制工作空间
 figure;
 scatter3(positions(:,1), positions(:,2), positions(:,3), '.');
-title('工作空间');
+title('workspace');
 xlabel('X');
 ylabel('Y');
 zlabel('Z');
