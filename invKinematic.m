@@ -129,6 +129,8 @@ Robot = handles.Robot;
 % Draw a graphical representation of the robot using the current joint angles
 Robot.plot([Th_1 Th_2 Th_3 Th_4 Th_5], 'tilesize', 120);
 
+beta = Th_5;
+
 % Assume that the initial attitude is the initial transformation matrix T0
 T0 = Robot.fkine([0 0 0 0 0]);
 T0 = T0.double;
@@ -151,9 +153,7 @@ fprintf('__________\n');
 cos_gamma = T(3,3);
 gamma = atan2(sqrt(1-cos_gamma^2),-cos_gamma);
 
-pitch = atan2(-R_relative(3,1), sqrt(R_relative(3,2)^2 + R_relative(3,3)^2));
-
-beta = Th_5;
+pitch = atan2(T(3,1)/cos(Th_5), -T(3,3));
 
 pitch_deg = pitch*180/pi;
 gamma_deg = gamma*180/pi;
