@@ -129,9 +129,19 @@ Robot = handles.Robot;
 % Draw a graphical representation of the robot using the current joint angles
 Robot.plot([Th_1 Th_2 Th_3 Th_4 Th_5], 'tilesize', 120);
 
+% Assume that the initial attitude is the initial transformation matrix T0
+T0 = Robot.fkine([0 0 0 0 0]);
+T0 = T0.double;
+
 % Calculate the forward kinematics of the robot arm end effector
 T = Robot.fkine([Th_1 Th_2 Th_3 Th_4 Th_5]);
 T = T.double;
+
+% Calculate the transformation matrix of the current posture relative to the initial posture
+T_relative = T0 \ T;
+
+% Extract relative rotation matrix
+R_relative = T_relative(1:3, 1:3);
 
 % Print information to the MATLAB console
 fprintf('**********\n');
@@ -141,13 +151,16 @@ fprintf('__________\n');
 cos_gamma = T(3,3);
 gamma = atan2(sqrt(1-cos_gamma^2),-cos_gamma);
 
+pitch = atan2(-R_relative(3,1), sqrt(R_relative(3,2)^2 + R_relative(3,3)^2));
+
 beta = Th_5;
 
+pitch_deg = pitch*180/pi;
 gamma_deg = gamma*180/pi;
 beta_deg = beta*180/pi;
 
 % Update Roll-Pitch-Yaw display on GUI
-handles.pitch.String = num2str(gamma_deg, '%.2f');
+handles.pitch.String = num2str(pitch_deg, '%.2f');
 handles.yaw.String = num2str(beta_deg, '%.2f');
 
 % Update the position of the robot arm end effector displayed on the GUI
@@ -233,12 +246,28 @@ theta1 = atan2(PY, PX);
 
 cos_theta3 = ((zw - handles.d_1)^2 + rw^2 - handles.d_2^2 - handles.d_3^2)/(2*handles.d_2*handles.d_3);
 sin_theta3 = -sqrt(1 - cos_theta3^2);
-theta3 = atan2(sin_theta3, cos_theta3);
+
+if(cos_theta3 == 1)
+    sin_theta3 = 0;
+end
+
+theta3 = atan2(real(sin_theta3), cos_theta3);
 
 beta = atan2(handles.d_3*sin(-theta3), handles.d_2 + handles.d_3*cos(-theta3));
 theta2 = atan2(zw - handles.d_1,rw) + beta;
 
-theta4 = pitch;
+s = sqrt((zw - handles.d_1)^2 + rw^2);
+
+cos_alpha = (s^2 + handles.d_3^2 - handles.d_2^2)/(2*s*handles.d_3);
+sin_alpha = sqrt(1-cos_alpha^2);
+
+if(cos_alpha == 1)
+    sin_alpha = 0;
+end
+
+alpha = atan2(real(sin_alpha), cos_alpha);
+
+theta4 = pitch + 2*alpha - (theta2 - 2*beta) - (-theta3);
 theta5 = yaw;
 
 % Update the joint angles displayed on the GUI
@@ -557,19 +586,16 @@ function btn_calculate_workspace_Callback(hObject, eventdata, handles)
 % Extract the robot from the handles structure
 Robot = handles.Robot;
 
-qlim = [-pi pi; % 关节1
-        0 pi; % 关节2
-        -pi/2 pi/2; % 关节3
-        0 pi; % 关节4
-        -pi pi]; % 关节5
+% Get the limits of each joint
+qlim = Robot.qlim;
 
-% 初始化末端执行器位置数组
+% Initialize the end effector position array
 positions = [];
 
-% 为每个关节定义采样点数
-n = 10; % 增加这个值会得到更精确的结果，但计算时间会更长
+% Define the number of sampling points for each joint
+n = 10;
 
-% 生成工作空间
+% Generate workspace
 for i = linspace(qlim(1,1), qlim(1,2), n)
     for j = linspace(qlim(2,1), qlim(2,2), n)
         for k = linspace(qlim(3,1), qlim(3,2), n)
@@ -588,7 +614,7 @@ for i = linspace(qlim(1,1), qlim(1,2), n)
     end
 end
 
-% 绘制工作空间
+% Draw the workspace
 figure;
 scatter3(positions(:,1), positions(:,2), positions(:,3), '.');
 title('workspace');
@@ -609,5 +635,5 @@ function path_tracing_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
-% 定义末端执行器的5个位置和方向（以笛卡尔坐标表示）
+% Define 5 positions and directions of the end effector (expressed in Cartesian coordinates)
 
