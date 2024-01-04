@@ -22,7 +22,7 @@ function varargout = invKinematic(varargin)
 
 % Edit the above text to modify the response to help invKinematic
 
-% Last Modified by GUIDE v2.5 25-Dec-2023 08:31:35
+% Last Modified by GUIDE v2.5 27-Dec-2023 23:04:03
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -69,24 +69,28 @@ L(3) = Link([0 0 handles.d_3 0]);
 L(4) = Link([0 0 0 pi/2]);
 L(5) = Link([0 handles.d_5 0 0]);
 
+% Motion constraints for each jointD
 L(1).qlim = [-pi pi];
 L(2).qlim = [0 pi];
 L(3).qlim = [-pi/2 0];
 L(4).qlim = [0 pi];
 L(5).qlim = [-pi pi];
 
+% Define the maximum speed and acceleration of the end effector
+handles.maxVelocity = 50;
+handles.maxAcceleration = 20;
+
 Robot = SerialLink(L);
 Robot.name = 'Lynxmotion Robot';
 
 handles.points = [
-    400, 0, 0, deg2rad(0), deg2rad(0);
-    200, 0, 200, deg2rad(0), deg2rad(0);
-    100, -150, 100, deg2rad(0), deg2rad(45);
-    -100, -150, 200, deg2rad(30), deg2rad(45);
-    200, 0, 100, deg2rad(30), deg2rad(45);
-    0, 200, 150, deg2rad(30), deg2rad(45);
-    -200, 0, 200, deg2rad(30), deg2rad(45);
-    0, -200, 100, deg2rad(30), deg2rad(45);
+    400, 0, 0 ,deg2rad(0), deg2rad(0);
+    200, 0, 0 ,deg2rad(0), deg2rad(0);
+    200, 200, 0, deg2rad(0), deg2rad(0);
+    200, 200, -100, deg2rad(0), deg2rad(0);
+    200, 200, 100, deg2rad(0), deg2rad(0);
+    200, -200, 100, deg2rad(0), deg2rad(0);
+    200, -200, -100, deg2rad(0), deg2rad(0);
 ];
 
 % Store the robot arm model in the handles structure
@@ -592,32 +596,32 @@ qlim = Robot.qlim;
 % Initialize the end effector position array
 positions = [];
 
-% Define the number of sampling points for each joint
-n = 10;
+% Define the number of random samples for Monte Carlo simulation
+n = 10000; % You can adjust this number based on the desired accuracy and computational resources
 
-% Generate workspace
-for i = linspace(qlim(1,1), qlim(1,2), n)
-    for j = linspace(qlim(2,1), qlim(2,2), n)
-        for k = linspace(qlim(3,1), qlim(3,2), n)
-            for l = linspace(qlim(4,1), qlim(4,2), n)
-                for m = linspace(qlim(5,1), qlim(5,2), n)
-                    T = Robot.fkine([i j k l m]);
-                    T = T.double;
-                    if isnumeric(T) && all(size(T) == [4 4])
-                        positions = [positions; T(1:3,4)'];
-                    else
-                        error('Unexpected format of transformation matrix T.');
-                    end
-                end
-            end
-        end
+% Generate workspace using Monte Carlo sampling
+for i = 1:n
+    % Randomly sample joint angles within their limits
+    q1 = qlim(1,1) + (qlim(1,2) - qlim(1,1)) * rand;
+    q2 = qlim(2,1) + (qlim(2,2) - qlim(2,1)) * rand;
+    q3 = qlim(3,1) + (qlim(3,2) - qlim(3,1)) * rand;
+    q4 = qlim(4,1) + (qlim(4,2) - qlim(4,1)) * rand;
+    q5 = qlim(5,1) + (qlim(5,2) - qlim(5,1)) * rand;
+
+    % Compute forward kinematics for random joint angles
+    T = Robot.fkine([q1 q2 q3 q4 q5]);
+    T = T.double;
+    if isnumeric(T) && all(size(T) == [4 4])
+        positions = [positions; T(1:3,4)'];
+    else
+        error('Unexpected format of transformation matrix T.');
     end
 end
 
 % Draw the workspace
 figure;
 scatter3(positions(:,1), positions(:,2), positions(:,3), '.');
-title('workspace');
+title('Robot Workspace using Monte Carlo Simulation');
 xlabel('X');
 ylabel('Y');
 zlabel('Z');
@@ -625,15 +629,189 @@ axis equal;
 grid on;
 
 % Indicate completion of workspace calculation
-fprintf('Workspace calculation done.\n');
+fprintf('Workspace calculation done using Monte Carlo Simulation.\n');
 
 
-
-% --- Executes on button press in path_tracing.
-function path_tracing_Callback(hObject, eventdata, handles)
-% hObject    handle to path_tracing (see GCBO)
+% --- Executes on button press in free_motion_path_tracing_Callback.
+function free_motion_path_tracing_Callback_Callback(hObject, eventdata, handles)
+% hObject    handle to free_motion_path_tracing_Callback (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
-% Define 5 positions and directions of the end effector (expressed in Cartesian coordinates)
+% 提取笛卡尔坐标点
+points = handles.points;
 
+% 提取最大速度和加速度
+maxVelocity = handles.maxVelocity;
+maxAcceleration = handles.maxAcceleration;
+
+% 确定时间步长
+dt = 0.1; % 例如，每0.1秒计算一次
+
+% 使用线性插值生成路径
+path = [];
+for i = 1:(size(points, 1) - 1)
+    segment = interp1([0 1], [points(i, 1:3); points(i + 1, 1:3)], 0:dt:1, 'linear');
+    path = [path; segment];
+end
+
+% 初始化末端执行器轨迹存储
+endEffectorPath = [];
+
+% 遍历路径上的每个点
+for i = 1:size(path, 1)
+    % 假设path中的每行是一个目标位置
+    target = path(i, :);
+
+    % 更新handles结构体中的位置和姿态信息
+    handles.Pos_X.String = num2str(target(1));
+    handles.Pos_Y.String = num2str(target(2));
+    handles.Pos_Z.String = num2str(target(3));
+    % 假设pitch和yaw是固定的，您可以根据需要进行修改
+    handles.pitch.String = '0'; 
+    handles.yaw.String = '45';
+
+    % 调用逆运动学函数计算关节角度
+    btn_inverse_close_form_Callback_Callback(hObject, eventdata, handles);
+
+    % 此处可能需要从handles结构体中提取计算出的关节角度
+    % 然后使用这些角度更新机器人模型的姿态
+    theta1 = str2double(handles.Theta_1.String)*pi/180;
+    theta2 = str2double(handles.Theta_2.String)*pi/180;
+    theta3 = str2double(handles.Theta_3.String)*pi/180;
+    theta4 = str2double(handles.Theta_4.String)*pi/180;
+    theta5 = str2double(handles.Theta_5.String)*pi/180;
+
+    % 绘制当前机器人姿态
+    handles.Robot.plot([theta1, theta2, theta3, theta4, theta5], 'tilesize', 120);
+    % 获取并存储末端执行器当前位置
+    T = handles.Robot.fkine([theta1, theta2, theta3, theta4, theta5]);
+    T = T.double;
+    endEffectorPosition = T(1:3, 4)';
+    endEffectorPath = [endEffectorPath; endEffectorPosition];
+
+    % 绘制末端执行器的轨迹
+    hold on; % 保持当前图形
+    plot3(endEffectorPath(:,1), endEffectorPath(:,2), endEffectorPath(:,3), 'r', 'LineWidth', 2);
+    hold off; % 解除保持
+
+    drawnow;
+    pause(0.05); % 根据需要调整暂停时间以控制动画速度
+end
+
+
+% --- Executes on button press in straight_line_path_tracing.
+function straight_line_path_tracing_Callback(hObject, eventdata, handles)
+% hObject    handle to straight_line_path_tracing (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% 提取笛卡尔坐标点
+points = handles.points;
+
+% 时间步长
+dt = 0.1;
+
+% 生成样条插值路径
+t = 1:size(points, 1);
+tt = linspace(1, size(points, 1), 100*size(points, 1));
+path = spline(t, points(:, 1:3)', tt)';
+
+% 初始化末端执行器轨迹存储
+endEffectorPath = [];
+
+% 遍历路径上的每个点
+for i = 1:size(path, 1)
+    % 目标位置
+    target = path(i, :);
+
+    % 更新handles结构体中的位置和姿态信息
+    handles.Pos_X.String = num2str(target(1));
+    handles.Pos_Y.String = num2str(target(2));
+    handles.Pos_Z.String = num2str(target(3));
+    handles.pitch.String = '0'; 
+    handles.yaw.String = '45';
+
+    % 调用逆运动学函数计算关节角度
+    btn_inverse_close_form_Callback_Callback(hObject, eventdata, handles);
+
+    % 提取关节角度
+    theta1 = str2double(handles.Theta_1.String)*pi/180;
+    theta2 = str2double(handles.Theta_2.String)*pi/180;
+    theta3 = str2double(handles.Theta_3.String)*pi/180;
+    theta4 = str2double(handles.Theta_4.String)*pi/180;
+    theta5 = str2double(handles.Theta_5.String)*pi/180;
+
+    % 绘制当前机器人姿态
+    handles.Robot.plot([theta1, theta2, theta3, theta4, theta5], 'tilesize', 120);
+
+    % 获取并存储末端执行器当前位置
+    T = handles.Robot.fkine([theta1, theta2, theta3, theta4, theta5]);
+    T = T.double;
+    endEffectorPosition = T(1:3, 4)';
+    endEffectorPath = [endEffectorPath; endEffectorPosition];
+
+    % 绘制末端执行器的轨迹
+    hold on; % 保持当前图形
+    plot3(endEffectorPath(:,1), endEffectorPath(:,2), endEffectorPath(:,3), 'r', 'LineWidth', 2);
+    hold off; % 解除保持
+
+    drawnow;
+    pause(0.05);
+end
+
+function plot_cylinder_obstacle(center, radius, height)
+    % center: 圆柱体中心的[x, y, z]坐标
+    % radius: 圆柱体的半径
+    % height: 圆柱体的高度
+
+    [X, Y, Z] = cylinder(radius, 30); % 30表示圆柱体的面数，增加这个值可以使圆柱体更平滑
+    Z = Z * height - height / 2 + center(3); % 调整圆柱体的高度
+    X = X + center(1); % 调整圆柱体的X坐标
+    Y = Y + center(2); % 调整圆柱体的Y坐标
+
+    % 绘制圆柱体
+    surf(X, Y, Z, 'FaceAlpha', 0.5); % FaceAlpha用于设置透明度
+    hold on;
+
+% --- Executes on button press in object_avoidance_path_tracing.
+function object_avoidance_path_tracing_Callback(hObject, eventdata, handles)
+% hObject    handle to object_avoidance_path_tracing (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% 提取关节角度
+theta1 = str2double(handles.Theta_1.String)*pi/180;
+theta2 = str2double(handles.Theta_2.String)*pi/180;
+theta3 = str2double(handles.Theta_3.String)*pi/180;
+theta4 = str2double(handles.Theta_4.String)*pi/180;
+theta5 = str2double(handles.Theta_5.String)*pi/180;
+
+% 绘制当前机器人姿态
+handles.Robot.plot([theta1, theta2, theta3, theta4, theta5], 'tilesize', 120);
+hold on; % 保持当前图形，以便添加障碍物
+
+% 提取笛卡尔坐标点
+points = handles.points;
+% 定义并绘制障碍物
+% 假设您想将障碍物放在点3和点4之间
+points = handles.points;
+center = (points(3,:) + points(4,:)) / 2;
+radius = 50; % 圆柱体半径
+height = 200; % 圆柱体高度
+
+[X, Y, Z] = cylinder(radius, 30);
+Z = Z * height - height / 2 + center(3);
+X = X + center(1);
+Y = Y + center(2);
+
+% 绘制圆柱体
+surf(X, Y, Z, 'FaceAlpha', 0.5); % FaceAlpha用于设置透明度
+
+% 设置图形属性
+axis equal;
+view(3);
+xlabel('X');
+ylabel('Y');
+zlabel('Z');
+hold off; % 解除保持
